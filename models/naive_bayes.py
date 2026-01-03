@@ -1,150 +1,145 @@
-
-
-import pickle
+import pandas as pd
 import numpy as np
+from sklearn.model_selection import train_test_split
 from sklearn.naive_bayes import GaussianNB
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.metrics import accuracy_score, f1_score, classification_report, confusion_matrix
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-def load_splits():
-   
-    splits_path = 'data/processed/splits/splits.pkl'
-    with open(splits_path, 'rb') as f:
-        splits = pickle.load(f)
-    return splits
+# -----------------------------
+# Load cleaned data
+# -----------------------------
+df = pd.read_csv('data/processed/colors_clean.csv')
+X = df[['red','green','blue']].values
+y = df['primary_label_encoded'].values
+class_names = df['primary_label'].unique()
 
+# -----------------------------
+# Stratified train-test split
+# -----------------------------
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, stratify=y, random_state=42
+)
+
+print(f"Training samples: {X_train.shape[0]}")
+print(f"Test samples: {X_test.shape[0]}")
+print(f"Features: {X_train.shape[1]}")
+print(f"Classes: {len(class_names)}")
+
+# -----------------------------
+# Noise function
+# -----------------------------
 def add_noise(X, noise_level=0.1):
- 
-    noise = np.random.normal(0, noise_level * 255, X.shape)
+    """Add Gaussian noise to features, clipped to 0-1."""
+    noise = np.random.normal(0, noise_level, X.shape)
     X_noisy = X + noise
-    X_noisy = np.clip(X_noisy, 0, 255)
-    return X_noisy
+    return np.clip(X_noisy, 0, 1)
 
-def train_naive_bayes_with_noise(noise_levels=[0, 0.05, 0.1, 0.2, 0.3]):
+# -----------------------------
+# Fit evaluation
+# -----------------------------
+def evaluate_fit(train_acc, test_acc):
+    """Determine if model is overfit, underfit, or best fit."""
+    if train_acc - test_acc > 0.05:
+        return "Overfit"
+    elif test_acc < 0.7:
+        return "Underfit"
+    else:
+        return "Best Fit"
 
-    print("🚀 Training Naive Bayes Model with Noise Experiment")
-    print("="*60)
+# -----------------------------
+# Train Naive Bayes & Noise Experiment
+# -----------------------------
+noise_levels = [0, 0.05, 0.1, 0.2, 0.3]
+results = {}
+
+print("\n🚀 Training Naive Bayes Model with Noise Experiment")
+print("="*60)
+
+# Train baseline first
+nb_baseline = GaussianNB()
+nb_baseline.fit(X_train, y_train)
+y_pred_train = nb_baseline.predict(X_train)
+train_acc_baseline = accuracy_score(y_train, y_pred_train)
+y_pred_test = nb_baseline.predict(X_test)
+test_acc_baseline = accuracy_score(y_test, y_pred_test)
+fit_status = evaluate_fit(train_acc_baseline, test_acc_baseline)
+
+results[0] = {
+    'model': nb_baseline,
+    'accuracy': test_acc_baseline,
+    'f1_macro': f1_score(y_test, y_pred_test, average='macro'),
+    'predictions': y_pred_test,
+    'train_accuracy': train_acc_baseline,
+    'fit': fit_status
+}
+
+print(f"\n📌 Baseline (No Noise) → Train Acc: {train_acc_baseline:.4f}, Test Acc: {test_acc_baseline:.4f}, F1-macro: {results[0]['f1_macro']:.4f}, Fit: {fit_status}")
+
+# Noise experiments
+for nl in noise_levels[1:]:
+    X_train_noisy = add_noise(X_train, nl)
+    X_test_noisy = add_noise(X_test, nl)
     
-    # Load data
-    splits = load_splits()
-    X_train = splits['X_train']
-    X_test = splits['X_test']
-    y_train = splits['y_train']
-    y_test = splits['y_test']
-    label_encoder = splits['label_encoder']
-    class_names = splits['class_names']
+    nb = GaussianNB()
+    nb.fit(X_train_noisy, y_train)
+    y_pred_train_noisy = nb.predict(X_train_noisy)
+    y_pred_noisy = nb.predict(X_test_noisy)
     
-    print(f"Training samples: {X_train.shape[0]}")
-    print(f"Test samples: {X_test.shape[0]}")
-    print(f"Classes: {len(class_names)}")
+    train_acc = accuracy_score(y_train, y_pred_train_noisy)
+    test_acc = accuracy_score(y_test, y_pred_noisy)
+    f1_macro = f1_score(y_test, y_pred_noisy, average='macro')
+    fit_status = evaluate_fit(train_acc, test_acc)
     
-    results = {}
-    noise_results = {}
-    
-    # Train without noise
-    print("\n🔧 Training Gaussian Naive Bayes (no noise)...")
-    nb_model = GaussianNB()
-    nb_model.fit(X_train, y_train)
-    
-    y_pred = nb_model.predict(X_test)
-    y_pred_proba = nb_model.predict_proba(X_test)
-    accuracy = accuracy_score(y_test, y_pred)
-    
-    results['no_noise'] = {
-        'model': nb_model,
-        'accuracy': accuracy,
-        'predictions': y_pred,
-        'probabilities': y_pred_proba,
-        'true_labels': y_test,
-        'noise_level': 0
+    results[nl] = {
+        'model': nb,
+        'accuracy': test_acc,
+        'f1_macro': f1_macro,
+        'predictions': y_pred_noisy,
+        'train_accuracy': train_acc,
+        'fit': fit_status
     }
     
-    print(f"📊 Accuracy (no noise): {accuracy:.4f} ({accuracy*100:.2f}%)")
-    
-    # Noise experiment
-    print(f"\n🔬 Noise Experiment:")
-    for noise_level in noise_levels:
-        if noise_level == 0:
-            continue
-            
-        print(f"\n📊 Noise Level: {noise_level*100:.0f}%")
-        X_train_noisy = add_noise(X_train, noise_level)
-        X_test_noisy = add_noise(X_test, noise_level)
-        
-        nb_noisy = GaussianNB()
-        nb_noisy.fit(X_train_noisy, y_train)
-        
-        y_pred_noisy = nb_noisy.predict(X_test_noisy)
-        accuracy_noisy = accuracy_score(y_test, y_pred_noisy)
-        
-        noise_results[noise_level] = {
-            'model': nb_noisy,
-            'accuracy': accuracy_noisy,
-            'predictions': y_pred_noisy,
-            'true_labels': y_test
-        }
-        
-        accuracy_change = accuracy_noisy - accuracy
-        print(f"   Accuracy: {accuracy_noisy:.4f} (Δ = {accuracy_change:+.4f})")
-    
-    # Plot results
-    plot_naive_bayes_results(results['no_noise'], noise_results)
-    
-    return results, noise_results
+    print(f"Noise {nl*100:.0f}% → Train Acc: {train_acc:.4f}, Test Acc: {test_acc:.4f}, F1-macro: {f1_macro:.4f}, Fit: {fit_status}")
 
-def plot_naive_bayes_results(base_result, noise_results):
-    """Plot Naive Bayes performance with and without noise."""
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-    
-    # Plot 1: Confusion Matrix (no noise)
-    y_true = base_result['true_labels']
-    y_pred = base_result['predictions']
-    splits = load_splits()
-    class_names = splits['class_names']
-    
-    cm = confusion_matrix(y_true, y_pred)
-    im = axes[0].imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
-    axes[0].set_title(f'Confusion Matrix (No Noise)\nAccuracy: {base_result["accuracy"]:.3f}', 
-                     fontsize=12, fontweight='bold')
-    axes[0].set_xlabel('Predicted Label', fontsize=10)
-    axes[0].set_ylabel('True Label', fontsize=10)
-    
-    # Add text annotations
-    thresh = cm.max() / 2.
-    for i in range(cm.shape[0]):
-        for j in range(cm.shape[1]):
-            axes[0].text(j, i, format(cm[i, j], 'd'),
-                        ha="center", va="center",
-                        color="white" if cm[i, j] > thresh else "black")
-    
-    # Plot 2: Noise impact
-    if noise_results:
-        noise_levels = list(noise_results.keys())
-        noise_accuracies = [noise_results[nl]['accuracy'] for nl in noise_levels]
-        
-        axes[1].plot(noise_levels, noise_accuracies, 'go-', linewidth=2, markersize=8)
-        axes[1].set_xlabel('Noise Level', fontsize=12)
-        axes[1].set_ylabel('Accuracy', fontsize=12)
-        axes[1].set_title('Naive Bayes: Accuracy vs Noise', fontsize=14, fontweight='bold')
-        axes[1].grid(True, alpha=0.3)
-        
-        # Add baseline
-        baseline_acc = base_result['accuracy']
-        axes[1].axhline(y=baseline_acc, color='blue', linestyle='--', 
-                       label=f'Baseline (0 noise): {baseline_acc:.3f}')
-        axes[1].legend()
-        
-        # Add percentage labels
-        for i, (nl, acc) in enumerate(zip(noise_levels, noise_accuracies)):
-            axes[1].annotate(f'{acc:.3f}', (nl, acc), 
-                           textcoords="offset points", xytext=(0,10), 
-                           ha='center', fontsize=9)
-    
-    plt.suptitle('Naive Bayes Model Analysis', fontsize=16, fontweight='bold')
-    plt.tight_layout()
-    plt.show()
+# -----------------------------
+# Summary Table
+# -----------------------------
+print("\n📊 Summary of Noise Experiment:")
+print("Noise Level (%) | Train Acc | Test Acc | F1-macro | Fit Status")
+print("---------------------------------------------------------------")
+for nl in noise_levels:
+    r = results[nl]
+    print(f"{nl*100:>13.0f} | {r['train_accuracy']:.4f}   | {r['accuracy']:.4f}   | {r['f1_macro']:.4f} | {r['fit']}")
 
-if __name__ == "__main__":
-    results, noise_results = train_naive_bayes_with_noise()
-    print("\n✅ Naive Bayes model complete with noise experiment!")
+# -----------------------------
+# Confusion matrix for baseline
+# -----------------------------
+y_pred_clean = results[0]['predictions']
+cm = confusion_matrix(y_test, y_pred_clean)
+
+plt.figure(figsize=(8,6))
+sns.heatmap(cm, annot=True, fmt='d', xticklabels=class_names, yticklabels=class_names, cmap='Blues')
+plt.xlabel('Predicted')
+plt.ylabel('True')
+plt.title('Naive Bayes Confusion Matrix (No Noise)')
+plt.show()
+
+# -----------------------------
+# Plot Noise Impact
+# -----------------------------
+plt.figure(figsize=(6,4))
+plt.plot([nl*100 for nl in noise_levels], [results[nl]['accuracy'] for nl in noise_levels], 'go-', label='Accuracy')
+plt.plot([nl*100 for nl in noise_levels], [results[nl]['f1_macro'] for nl in noise_levels], 'ro-', label='F1-macro')
+plt.xlabel('Noise Level (%)')
+plt.ylabel('Metric')
+plt.title('Naive Bayes: Accuracy & F1 vs Noise')
+plt.grid(True)
+plt.legend()
+plt.show()
+
+# -----------------------------
+# Classification report (baseline)
+# -----------------------------
+print("\nClassification Report (No Noise):")
+print(classification_report(y_test, y_pred_clean, target_names=class_names))
