@@ -32,8 +32,13 @@ print(f"Classes: {len(class_names)}")
 def add_noise(X, noise_level=0.1):
     """Add Gaussian noise to features, clipped to 0-1."""
     noise = np.random.normal(0, noise_level, X.shape)
+#     Generates Gaussian (normal) noise
+# Mean = 0 → noise is centered (no bias)
+# Standard deviation = noise_level
+# Shape = X.shape → same size as the dataset
     X_noisy = X + noise
     return np.clip(X_noisy, 0, 1)
+# Ensures values stay in the valid RGB range
 
 # -----------------------------
 # Tune max_depth
@@ -43,13 +48,16 @@ results = {}
 
 print("\n🚀 Tuning Decision Tree max_depth...")
 print("="*60)
+# just for formatting the output
 
 for max_depth in max_depth_values:
     depth_str = str(max_depth) if max_depth is not None else "None"
     dt = DecisionTreeClassifier(
         max_depth=max_depth,
         random_state=42,
-        criterion='gini',
+        criterion='gini', 
+        # metric used to decide the best split at each node/gini is alternTive to entropy  
+        # We used Gini impurity to measure the quality of splits
         class_weight='balanced'
     )
     dt.fit(X_train, y_train)
@@ -61,6 +69,7 @@ for max_depth in max_depth_values:
     test_acc = accuracy_score(y_test, y_pred_test)
     test_f1 = f1_score(y_test, y_pred_test, average='macro')
     
+    # RESULT IS A DICTIONARY
     results[max_depth] = {
         'model': dt,
         'train_accuracy': train_acc,
